@@ -2,7 +2,8 @@ import { CHAINS, PROTOCOLS, AMM_TYPES } from "./sdk/config";
 import { getLPValueByUserAndPoolFromPositions, getPositionAtBlock, 
   getPositionDetailsFromPosition, 
   getPositionsForAddressByPoolAtBlock, getPoolDetailsFromPositions,
-  getNumberOfPositionsByUserAndPoolFromPositions } from "./sdk/subgraphDetails";
+  getNumberOfPositionsByUserAndPoolFromPositions, 
+  getPoolsInformationFromSubgraph} from "./sdk/subgraphDetails";
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
 };
@@ -11,6 +12,10 @@ import csv from 'csv-parser';
 import fs from 'fs';
 import { write } from 'fast-csv';
 import path from "path";
+import { readUserPositionTVLFromCSV } from "./commons/csv-utils";
+import { logWithTimestamp } from "./commons/log-utils";
+import { createTable, storeData, updatePoolInformationInDb, storeDataWithCopyStream } from "./db/dbutils";
+import { tokensFromGitUrl } from "./commons/json-utils";
 
 //Uncomment the following lines to test the getPositionAtBlock function
 
@@ -43,15 +48,6 @@ interface OutputData {
   [key: string]: UserLPData;
 }
 
-interface CSVRow {
-  user: string;
-  pool: string;
-  block: number;
-  position: number;
-  lpvalue: string;
-  pairName: string;
-  userPoolPositions: number;
-}
 
 const prepareBlockNumbersArr = (startBlockNumber: number, interval: number, endBlockNumber: number) => {
   const blockNumbers = [];
@@ -92,18 +88,19 @@ const readBlocksFromCSV = async (filePath: string): Promise<number[]> => {
 const getData = async () => {
 
   const csvFilePath = path.resolve(__dirname, '../../../../data/mode_supswapv3_hourly_blocks.csv');
-  const snapshotBlocks = await readBlocksFromCSV(csvFilePath);
-  // const snapshotBlocks = prepareBlockNumbersArr(3245809,43200,7383401)
+  // onst snapshotBlocks = await readBlocksFromCSV(csvFilePath);
+  const snapshotBlocks = prepareBlockNumbersArr(3245809,43200,7383401)
     logWithTimestamp("Total blocks: "+snapshotBlocks.length)
     
     // Write the CSV output to a file
-  const outputPath = path.resolve(__dirname, '../../../../data/mode_supswapv3_tvl_snapshot.csv');
+  // const outputPath = path.resolve(__dirname, '../../../../data/mode_supswapv3_tvl_snapshot.csv');
   
-  // const outputPath = path.resolve(__dirname, '../mode_supswapv3_tvl_snapshot.csv');
+  const outputPath = path.resolve(__dirname, '../mode_supswapv3_tvl_snapshot.csv');
   // logWithTimestamp(outputPath)
-  const csvRows: CSVRow[] = [];
+  const userPoolTVLs: UserPoolTVL[] = [];
+  let processingIndex = 0;
   for (let block of snapshotBlocks) {
-   
+    logWithTimestamp(`Processing Index: ${++processingIndex}/${snapshotBlocks.length}`)
     const positions = await getPositionsForAddressByPoolAtBlock(
       block, "", "", CHAINS.MODE, PROTOCOLS.SUPSWAP, AMM_TYPES.UNISWAPV3
     );
@@ -127,7 +124,7 @@ const getData = async () => {
         const lpValueStr = lpValue.toString();
         const poolDetails = poolInfo.get(poolKey)!!
         // Accumulate CSV row data
-        csvRows.push({
+        userPoolTVLs.push({
           user: key,
           pairName: `${poolDetails.token0.symbol}/${poolDetails.token1.symbol} ${poolDetails.feeTier/10000}%`,
           pool: poolKey,
@@ -142,19 +139,37 @@ const getData = async () => {
     logWithTimestamp("Number of Users:"+ uniqueUsersCount)
    
   }
-  const ws = fs.createWriteStream(outputPath, { flags: 'a' });
-  write(csvRows, { headers: true }).pipe(ws).on('finish', () => {
+  const ws = fs.createWriteStream(outputPath);
+  write(userPoolTVLs, { headers: true }).pipe(ws).on('finish', () => {
     logWithTimestamp("CSV file has been written.");
   });
 };
 logWithTimestamp("Starting...")
-getData().then(() => {
-  logWithTimestamp("Done");
+// getData().then(() => {
+//   logWithTimestamp("Done");
+// });
+
+readUserPositionTVLFromCSV(path.resolve(__dirname, '../mode_supswapv3_tvl_snapshot.csv'), true).then((data) => {
+  logWithTimestamp(`Data length: ${data.length}`);
+  createTable().then(() => {
+    storeData(data).then(() => {
+      logWithTimestamp("Done");
+    });
+  });
 });
-function logWithTimestamp(message: string): void {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${message}`);
-}
+
+// getPoolsInformationFromSubgraph(0, CHAINS.MODE, PROTOCOLS.SUPSWAP, AMM_TYPES.UNISWAPV3).then((data) => {
+//   logWithTimestamp(`Data length: ${data.length}`);
+//   updatePoolInformationInDb(data).then(() => {
+//     logWithTimestamp("Done");
+//   });
+// });
+
+tokensFromGitUrl("https://raw.githubusercontent.com/SupSwap/tokens/main/list/tokens.json").then((tokens) => {
+  logWithTimestamp(`Tokens: ${tokens}`);
+});
+
+
 // getPrice(new BigNumber('1579427897588720602142863095414958'), 6, 18); //Uniswap
 // getPrice(new BigNumber('3968729022398277600000000'), 18, 6); //SupSwap
 

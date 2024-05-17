@@ -19,6 +19,7 @@
     "bignumber.js": "^9.1.2",
     "csv-parser": "^3.0.0",
     "decimal.js-light": "^2.5.1",
+    "dotenv": "^16.4.5",
     "fast-csv": "^5.0.1",
     "jsbi": "^4.3.0",
     "node-fetch": "^3.3.2",

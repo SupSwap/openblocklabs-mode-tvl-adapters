@@ -1,8 +1,10 @@
 import BigNumber from "bignumber.js";
 import { AMM_TYPES, CHAINS, PROTOCOLS, SUBGRAPH_URLS } from "./config";
 import { PositionMath } from "./utils/positionMath";
+import { Pool } from "pg";
 
 export interface PoolDetails{
+    id: string;
     token0: TokenDetails;
     token1: TokenDetails;
     feeTier: number;
@@ -175,6 +177,42 @@ export const getPositionsForAddressByPoolAtBlock = async (
     return result;
 }
 
+export const getPoolsInformationFromSubgraph = async(
+    blockNumber: number,
+    chainId: CHAINS,
+    protocol: PROTOCOLS,
+    ammType: AMM_TYPES
+): Promise<PoolDetails[]> => {
+    let subgraphUrl = SUBGRAPH_URLS[chainId][protocol][ammType];
+    let blockQuery = blockNumber !== 0 ? `, block: {number: ${blockNumber}}` : ``;
+    let query = `{
+        pools(${blockQuery}) {
+            id
+            token0 {
+                id
+                decimals
+                derivedUSD
+                name
+                symbol
+            }
+            token1 {
+                id
+                decimals
+                derivedUSD
+                name
+                symbol
+            }
+            feeTier
+        }
+    }`;
+    let response = await fetch(subgraphUrl, {
+        method: "POST",
+        body: JSON.stringify({ query }),
+        headers: { "Content-Type": "application/json" },
+    });
+    let data = await response.json();
+    return data.data.pools;
+}
 
 export const getPositionAtBlock = async (
     blockNumber: number,
@@ -291,6 +329,7 @@ export const getPoolDetailsFromPositions = (positions: Position[]): Map<string, 
         let poolDetails = result.get(poolId);
         if (poolDetails === undefined) {
             poolDetails = {
+                id: poolId,
                 token0: position.token0,
                 token1: position.token1,
                 feeTier: position.pool.feeTier
