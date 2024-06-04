@@ -17,7 +17,7 @@ export const pool = new Pool({
 });
 // Define the table creation query
 const createTableQuery = `
-  CREATE TABLE IF NOT EXISTS users_supswap_v3_tvl (
+  CREATE TABLE IF NOT EXISTS users_supswap_v3_tvl_for_phase2 (
     "user" VARCHAR(255) NOT NULL,
     "pool" VARCHAR(255) NOT NULL,
     "block" INTEGER NOT NULL,
@@ -28,7 +28,8 @@ const createTableQuery = `
     "token0address" VARCHAR(255) NOT NULL DEFAULT '',
     "token1address" VARCHAR(255) NOT NULL DEFAULT '',
     "feetier" DECIMAL(3,2) NOT NULL,
-    "is_contract" BOOLEAN NOT NULL DEFAULT FALSE
+    "is_contract" BOOLEAN NOT NULL DEFAULT FALSE,
+    "is_eligible_for_drop1_phase_1" BOOLEAN NOT NULL DEFAULT FALSE,
   )
 `;
 
@@ -49,7 +50,7 @@ export const createTable = async (): Promise<void> => {
 
 export const deleteDataOfBlockNumber = async (blockNumber: number) => {
     const client = await pool.connect();
-    await client.query(`DELETE FROM users_supswap_v3_tvl WHERE block = $1`, [blockNumber]);
+    await client.query(`DELETE FROM users_supswap_v3_tvl_for_phase2 WHERE block = $1`, [blockNumber]);
     client.release();
   }
   
@@ -57,7 +58,7 @@ export const storeDataWithCopyStream = async (userDataList: UserPoolTVL[]) => {
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
-        const stream = client.query(copyFrom('COPY users_supswap_v3_tvl("user", "pool", "block", "userpositions", "lpvalue", "token0", "token1", "feetier") from STDIN'));
+        const stream = client.query(copyFrom('COPY users_supswap_v3_tvl_for_phase2("user", "pool", "block", "userpositions", "lpvalue", "token0", "token1", "feetier") from STDIN'));
         userDataList.forEach((userData,i) => {
             const { user: u, pool, block, position, lpvalue, pairName } = userData;
             logWithTimestamp(`Writing data to stream... ${i} of ${userDataList.length}`)
@@ -73,7 +74,7 @@ export const storeDataWithCopyStream = async (userDataList: UserPoolTVL[]) => {
         });
         logWithTimestamp("Stream finished...")
         await client.query('COMMIT'); // Commit the transaction
-        console.log('Data stored successfully using COPY command!');
+        logWithTimestamp('Data stored successfully using COPY command!');
     } catch (error) {
         await client.query('ROLLBACK'); // Rollback the transaction if there's an error
         console.error('Error storing data with COPY command:', error);
@@ -88,7 +89,7 @@ export const updatePoolInformationInDb = async (pools: PoolDetails[]) => {
     await client.query(`BEGIN`);
     for (let i = 0; i < pools.length; i++) {
         logWithTimestamp(`Updating pool ${i} of ${pools.length}`);
-        await client.query(`UPDATE users_supswap_v3_tvl SET "token0address" = $1, "token1address" = $2 WHERE "pool" = $3`, [pools[i].token0.id, pools[i].token1.id, pools[i].id]);
+        await client.query(`UPDATE users_supswap_v3_tvl_for_phase2 SET "token0address" = $1, "token1address" = $2 WHERE "pool" = $3`, [pools[i].token0.id, pools[i].token1.id, pools[i].id]);
     }
     await client.query(`COMMIT`);
     client.release();
@@ -97,7 +98,7 @@ export const storeData = async (userDataList: UserPoolTVL[]) => {
     const client = await pool.connect();
     // Insert all data in userDataList into database and then do commit without using copystream
     const queryText = `
-      INSERT INTO users_supswap_v3_tvl ("user", "pool", "block", "userpositions", "lpvalue", "token0", "token1", "feetier")
+      INSERT INTO users_supswap_v3_tvl_for_phase2 ("user", "pool", "block", "userpositions", "lpvalue", "token0", "token1", "feetier")
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `;
     await client.query("BEGIN")

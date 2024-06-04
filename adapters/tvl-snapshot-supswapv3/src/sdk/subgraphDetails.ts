@@ -186,7 +186,7 @@ export const getPoolsInformationFromSubgraph = async(
     let subgraphUrl = SUBGRAPH_URLS[chainId][protocol][ammType];
     let blockQuery = blockNumber !== 0 ? `, block: {number: ${blockNumber}}` : ``;
     let query = `{
-        pools(${blockQuery}) {
+        pools {
             id
             token0 {
                 id
@@ -205,12 +205,15 @@ export const getPoolsInformationFromSubgraph = async(
             feeTier
         }
     }`;
+    console.log(query);
     let response = await fetch(subgraphUrl, {
         method: "POST",
         body: JSON.stringify({ query }),
         headers: { "Content-Type": "application/json" },
     });
+
     let data = await response.json();
+    console.log(data);
     return data.data.pools;
 }
 

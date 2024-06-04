@@ -87,9 +87,9 @@ const readBlocksFromCSV = async (filePath: string): Promise<number[]> => {
 // 7383401
 const getData = async () => {
 
-  const csvFilePath = path.resolve(__dirname, '../../../../data/mode_supswapv3_hourly_blocks.csv');
+  // const csvFilePath = path.resolve(__dirname, '../../../../data/mode_supswapv3_hourly_blocks.csv');
   // onst snapshotBlocks = await readBlocksFromCSV(csvFilePath);
-  const snapshotBlocks = prepareBlockNumbersArr(3245809,43200,7383401)
+  const snapshotBlocks = prepareBlockNumbersArr(7385808,43200,8237844)
     logWithTimestamp("Total blocks: "+snapshotBlocks.length)
     
     // Write the CSV output to a file
@@ -149,25 +149,25 @@ logWithTimestamp("Starting...")
 //   logWithTimestamp("Done");
 // });
 
-readUserPositionTVLFromCSV(path.resolve(__dirname, '../mode_supswapv3_tvl_snapshot.csv'), true).then((data) => {
-  logWithTimestamp(`Data length: ${data.length}`);
-  createTable().then(() => {
-    storeData(data).then(() => {
-      logWithTimestamp("Done");
-    });
-  });
-});
-
-// getPoolsInformationFromSubgraph(0, CHAINS.MODE, PROTOCOLS.SUPSWAP, AMM_TYPES.UNISWAPV3).then((data) => {
+// readUserPositionTVLFromCSV(path.resolve(__dirname, '../mode_supswapv3_tvl_snapshot.csv'), true).then((data) => {
 //   logWithTimestamp(`Data length: ${data.length}`);
-//   updatePoolInformationInDb(data).then(() => {
-//     logWithTimestamp("Done");
+//   createTable().then(() => {
+//     storeDataWithCopyStream(data).then(() => {
+//       logWithTimestamp("Done");
+//     });
 //   });
 // });
 
-tokensFromGitUrl("https://raw.githubusercontent.com/SupSwap/tokens/main/list/tokens.json").then((tokens) => {
-  logWithTimestamp(`Tokens: ${tokens}`);
+getPoolsInformationFromSubgraph(0, CHAINS.MODE, PROTOCOLS.SUPSWAP, AMM_TYPES.UNISWAPV3).then((data) => {
+  logWithTimestamp(`Data length: ${data.length}`);
+  updatePoolInformationInDb(data).then(() => {
+    logWithTimestamp("Done");
+  });
 });
+
+// tokensFromGitUrl("https://raw.githubusercontent.com/SupSwap/tokens/main/list/tokens.json").then((tokens) => {
+//   logWithTimestamp(`Tokens: ${tokens}`);
+// });
 
 
 // getPrice(new BigNumber('1579427897588720602142863095414958'), 6, 18); //Uniswap
