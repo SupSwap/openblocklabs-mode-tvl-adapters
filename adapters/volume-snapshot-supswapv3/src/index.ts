@@ -8,6 +8,8 @@ import {
   getPoolDetailsFromSwap,
   getSwapsForAddressByPoolAtBlock,
   getUsersVolumeByPoolId,
+  Swap,
+  SwapCSVRow,
 } from "./sdk/subgraphDetails";
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
@@ -123,6 +125,28 @@ const getData = async () => {
   // logWithTimestamp(outputPath)
   const csvRows: CSVRow[] = [];
   const csvRows2: CSVRow[] = [];
+
+  // read input.csv as standard text file which reads line by line and store data in input variable
+
+  let inputFilePathForIndices = path.resolve(
+    __dirname,
+    "../input.csv"
+  );
+
+  // read input.csv as standard text file which reads line by line and store data in input variable
+  let input = fs.readFileSync(inputFilePathForIndices, "utf8");
+  let inputArray = input.split("\n");
+  // user the first element and split it with , and store it in initialRequestIndices
+  let initialRequestIndices = inputArray[0].split(",").map((index) => {
+    return { index: parseInt(index), pending: true };
+  });
+  let batchSize = initialRequestIndices.length
+  let dataSize = parseInt(inputArray[1])
+
+  console.log(initialRequestIndices)
+
+  let prePopulatedData = await prePopulateDataFromCSV("../pre_mode_supswapv3_volume_snapshot.csv")
+
   const swapList = await getSwapsForAddressByPoolAtBlock(
     fromBlock,
     startTimestamp,
@@ -144,8 +168,14 @@ const getData = async () => {
     ],
     CHAINS.MODE,
     PROTOCOLS.SUPSWAP,
-    AMM_TYPES.UNISWAPV3
+    AMM_TYPES.UNISWAPV3,
+    initialRequestIndices,
+    batchSize,
+    dataSize,
+    prePopulatedData
   );
+
+
 
   logWithTimestamp(`Block from: ${fromBlock}`);
   logWithTimestamp(`Timestamp start: ${startTimestamp}  end:${endTimestamp}`);
@@ -170,7 +200,7 @@ const getData = async () => {
       // Accumulate CSV row data
       csvRows.push({
         user: key,
-        pairName: `${poolDetails.token0.symbol}/${poolDetails.token1.symbol} ${
+        pairName: `${poolDetails.token0Symbol}/${poolDetails.token1Symbol} ${
           poolDetails.feeTier / 10000
         }%`,
         pool: poolKey,
@@ -196,7 +226,7 @@ const getData = async () => {
       // Accumulate CSV row data
       csvRows2.push({
         user: userKey,
-        pairName: `${poolDetails.token0.symbol}/${poolDetails.token1.symbol} ${
+        pairName: `${poolDetails.token0Symbol}/${poolDetails.token1Symbol} ${
           poolDetails.feeTier / 10000
         }%`,
         pool: poolKey,
@@ -234,9 +264,41 @@ logWithTimestamp("Starting...");
 getData().then(() => {
   logWithTimestamp("Done");
 });
-function logWithTimestamp(message: string): void {
+export function logWithTimestamp(message: string): void {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}](${Date.now()})  ${message}`);
+}
+
+async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
+  // check if file exists or else create it 
+  if (!fs.existsSync(path.resolve(__dirname, arg0))) {
+    fs.writeFileSync(path.resolve(__dirname, arg0), "")
+    return [];
+  }
+
+  let csv = fs.readFileSync(path.resolve(__dirname, arg0), "utf8");
+  let csvArray = csv.split("\n");
+  let swaps: SwapCSVRow[] = [];
+  csvArray.forEach((row) => {
+    let swap = row.split(",");
+    swaps.push({
+      timestamp: parseInt(swap[0]),
+      id: swap[1],
+      amount0: Number(swap[2]),
+      amount1: Number(swap[3]),
+      amountUSD: Number(swap[4]),
+      sender: swap[5],
+      poolId: swap[6],
+      token0Symbol: swap[7],
+      token1Symbol: swap[8],
+      token0Address: swap[9],
+      token1Address: swap[10],
+      sqrtPrice: Number(swap[11]),
+      tick: parseInt(swap[12]),
+      feeTier: parseInt(swap[13]),
+    });
+  });
+  return swaps;
 }
 // getPrice(new BigNumber('1579427897588720602142863095414958'), 6, 18); //Uniswap
 // getPrice(new BigNumber('3968729022398277600000000'), 18, 6); //SupSwap

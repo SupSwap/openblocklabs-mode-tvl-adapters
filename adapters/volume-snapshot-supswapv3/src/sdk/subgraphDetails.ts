@@ -1,13 +1,26 @@
 import BigNumber from "bignumber.js";
 import { AMM_TYPES, CHAINS, PROTOCOLS, SUBGRAPH_URLS } from "./config";
 import { PositionMath } from "./utils/positionMath";
+import fs from "fs";
+import { write } from "fast-csv";
+import path from "path";
 
+
+
+
+
+export function logWithTimestamp(message: string): void {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}](${Date.now()})  ${message}`);
+}
 export interface UserAggregatedAssetsInPools {
   volume: BigNumber;
 }
 export interface PoolDetails {
-  token0: TokenDetails;
-  token1: TokenDetails;
+  token0Address: string;
+  token1Address: string;
+  token0Symbol: string;
+  token1Symbol: string;
   feeTier: number;
 }
 
@@ -19,8 +32,26 @@ export interface TokenDetails {
   derivedUSD?: number;
 }
 
+export interface SwapCSVRow {
+  timestamp: number;
+  id: string;
+  amount0: number;
+  amount1: number;
+  amountUSD: number;
+  sender: string;
+  poolId: string;
+  token0Symbol: string;
+  token1Symbol: string;
+  token0Address: string;
+  token1Address: string;
+  sqrtPrice: number;
+  tick: number;
+  feeTier: number;
+}
+
 export interface Swap {
   id: string;
+  timestamp: number;
   amount0: bigint;
   amount1: bigint;
   amountUSD: bigint;
@@ -47,7 +78,13 @@ export interface PositionWithUSDValue extends Swap {
   token1Symbol: string;
 }
 
-export const getSwapsForAddressByPoolAtBlock = async (
+export interface SwapResponse {
+  success: boolean;
+  index: number;
+  data: Swap[];
+}
+
+export const getSwapsForAddressByPoolAtBlockForOneQuery = async (
   fromBlock: number,
   startTimestamp: number,
   endTimestamp: number,
@@ -55,8 +92,11 @@ export const getSwapsForAddressByPoolAtBlock = async (
   poolIds: string[],
   chainId: CHAINS,
   protocol: PROTOCOLS,
-  ammType: AMM_TYPES
-): Promise<Swap[]> => {
+  ammType: AMM_TYPES,
+  index: number,
+  batchSize: number,
+  dataSize: number
+): Promise<SwapResponse> => {
   let subgraphUrl = SUBGRAPH_URLS[chainId][protocol][ammType];
   let blockQuery = fromBlock !== 0 ? ` block: {number: ${fromBlock}}` : ``;
   let timestampQuery =
@@ -70,22 +110,23 @@ export const getSwapsForAddressByPoolAtBlock = async (
     ownerQuery !== "" && poolQuery !== "" && timestampQuery !== ""
       ? `where: {${ownerQuery} , ${poolQuery}, ${timestampQuery}}`
       : ownerQuery !== ""
-      ? `where: {${ownerQuery}, ${timestampQuery}}`
-      : poolQuery !== ""
-      ? `where: {${poolQuery}, ${timestampQuery}}`
-      : ``;
+        ? `where: {${ownerQuery}, ${timestampQuery}}`
+        : poolQuery !== ""
+          ? `where: {${poolQuery}, ${timestampQuery}}`
+          : ``;
 
-  let skip = 0;
-  let fetchNext = true;
   let result: Swap[] = [];
-  while (fetchNext) {
-    let query = `{
-            swaps(${whereQuery} ${blockQuery} orderBy: transaction__timestamp, first:1000,skip:${skip}) {
+  let skip = index * dataSize;
+
+  // logWithTimestamp(`Fetching swaps from ${skip} to ${skip + dataSize}`);
+  let query = `{
+            swaps(${whereQuery} ${blockQuery} orderBy: transaction__timestamp,first: ${dataSize},skip:${skip}) {
               id
               sender
               amount0
               amount1
               amountUSD
+              timestamp
               pool {
                 id
                 sqrtPrice
@@ -109,7 +150,11 @@ export const getSwapsForAddressByPoolAtBlock = async (
             }
         }`;
 
-    // console.log(query);
+  // console.log(query);
+
+  try {
+
+    logWithTimestamp(`Fetching swaps from ${skip} to ${skip + dataSize}`);
 
     let response = await fetch(subgraphUrl, {
       method: "POST",
@@ -119,11 +164,17 @@ export const getSwapsForAddressByPoolAtBlock = async (
 
     let data = await response.json();
 
+
+    logWithTimestamp(`Fetched swaps from ${skip} to ${skip + dataSize}`);
+
+    console.log(data)
+
     let swapList = data.data.swaps;
     for (let i = 0; i < swapList.length; i++) {
       let swap = swapList[i];
       let transformedPosition: Swap = {
         id: swap.id,
+        timestamp: swap.timestamp,
         amount0: swap.amount0,
         amount1: swap.amount1,
         amountUSD: swap.amountUSD,
@@ -151,15 +202,149 @@ export const getSwapsForAddressByPoolAtBlock = async (
       };
       result.push(transformedPosition);
     }
-    if (swapList.length < 1000) {
-      fetchNext = false;
-    } else {
-      skip += 1000;
+    logWithTimestamp(`Swaps fetched: ${result.length}`);
+
+    logWithTimestamp(`Round: ${skip / dataSize}, Swap data: ${skip}`);
+
+    return {
+      success: true,
+      index: index,
+      data: result,
+    };
+
+  } catch (error) {
+    logWithTimestamp(`Error fetching swaps from ${skip} to ${skip + dataSize}: ${error}`);
+    return {
+      success: false,
+      index: index,
+      data: [],
+    };
+  }
+};
+export const getSwapsForAddressByPoolAtBlock = async (
+  fromBlock: number,
+  startTimestamp: number,
+  endTimestamp: number,
+  address: string,
+  poolIds: string[],
+  chainId: CHAINS,
+  protocol: PROTOCOLS,
+  ammType: AMM_TYPES,
+  initialRequestIndices: { index: number, pending: boolean }[],
+  batchSize: number,
+  dataSize: number,
+  prePopulatedData: SwapCSVRow[]
+): Promise<SwapCSVRow[]> => {
+
+  let skip = 0;
+  let fetchNext = true;
+  let result: SwapCSVRow[] = [];
+  let responseSuccess: boolean[] = [];
+  // initialize requestIndices number array from 0 to 49
+ let requestIndices = initialRequestIndices;
+
+  let lastSuccessfulRequestIndex = 0;
+
+  result.push(...prePopulatedData)
+  while (fetchNext) {
+
+
+    let queryPromises = requestIndices.map((requestIndex) => {
+      return getSwapsForAddressByPoolAtBlockForOneQuery(fromBlock, startTimestamp, endTimestamp, address, poolIds, chainId, protocol, ammType, requestIndex.index, batchSize, dataSize);
+    });
+
+
+    let responses = await Promise.all(queryPromises);
+    let successfulResponses = responses.filter((response) => response.success);
+    let failedResponses = responses.filter((response) => !response.success);
+    if (successfulResponses.length > 0) {
+      lastSuccessfulRequestIndex = successfulResponses[successfulResponses.length - 1].index;
+      result.push(...successfulResponses.map((response) => response.data).flat().map((swap) => {
+        return {
+          timestamp: swap.timestamp,
+          id: swap.id,
+          amount0: Number(swap.amount0),
+          amount1: Number(swap.amount1),
+          amountUSD: Number(swap.amountUSD),
+          sender: swap.sender,
+          poolId: swap.pool.id,
+          token0Symbol: swap.token0.symbol,
+          token1Symbol: swap.token1.symbol,
+          token0Address: swap.token0.id,
+          token1Address: swap.token1.id,
+          sqrtPrice: Number(swap.pool.sqrtPrice),
+          tick: Number(swap.pool.tick),
+          feeTier: Number(swap.pool.feeTier),
+        };
+      }));
     }
-    console.log("Round:", result.length / 1000, "Swap data:", result.length);
+
+    logWithTimestamp(`Last successful request index: ${lastSuccessfulRequestIndex}`);
+    logWithTimestamp(`Failed requests: ${failedResponses.length}`);
+    logWithTimestamp(`Successful requests: ${successfulResponses.length}`);
+
+
+
+    // if all requests succeeded and one of them has less than 100 swaps, fetchNext = false
+    if (failedResponses.length === 0 && successfulResponses.length > 0 && successfulResponses.some((response) => response.data.length < dataSize)) {
+      fetchNext = false;
+      logWithTimestamp(`No more fetchRequired`);
+    }
+
+    if (fetchNext) {
+
+
+      // remove all successful requests from requestIndices based on successfulResponse and keep indices for failedResponse
+      requestIndices = requestIndices.filter((requestIndex) => (successfulResponses.map((response) => response.index).includes(requestIndex.index)) ? false : true);
+      logWithTimestamp(`New Request indices: ${requestIndices.length}`);
+
+      // fill requestIndices by adding remaining indices from last successful request index
+      requestIndices = requestIndices.concat(Array.from({ length: batchSize - requestIndices.length }, (_, i) => {
+        return { index: i + lastSuccessfulRequestIndex + 1, pending: true };
+      }));
+
+
+      logWithTimestamp(`Request indices length: ${requestIndices.length}`);
+
+      logWithTimestamp(`Request indices: ${requestIndices.map((requestIndex) => requestIndex.index)}`);
+    }
+
+
+
+   
+    const outputPath = path.resolve(
+      __dirname,
+      "../../pre_mode_supswapv3_volume_snapshot.csv"
+    );
+    
+    const ws = fs.createWriteStream(outputPath);
+    await writeCSVWithPromise(result, ws);
+
+    //  write a text file with the last successful request index
+
+    let inputFile = path.resolve(__dirname, "../../input.csv")
+
+
+    fs.writeFileSync(inputFile, requestIndices.map((requestIndex) => requestIndex.index).toString());
+    fs.writeFileSync(inputFile,'\n',{flag:'a'});
+    fs.writeFileSync(inputFile, dataSize.toString(),{flag:'a'});
+    console.log(`Last successful request index: ${lastSuccessfulRequestIndex}`);
   }
   return result;
 };
+
+export function writeCSVWithPromise(csvRows: SwapCSVRow[], ws: fs.WriteStream): Promise<void> {
+  return new Promise((resolve, reject) => {
+    write(csvRows)
+      .pipe(ws)
+      .on("finish", () => {
+        logWithTimestamp("CSV file has been written.");
+        resolve();
+      }).on('error', (error) => {
+        reject(error);
+      });
+  });
+}
 
 // export const getPositionAtBlock = async (
 //   blockNumber: number,
@@ -266,18 +451,20 @@ export const getSwapsForAddressByPoolAtBlock = async (
 //   // return [position.token0, position.token1,token0AmountsInWei, token1AmountsInWei, token0DecimalValue, token1DecimalValue,token0UsdValue, token1UsdValue,data.data._meta];
 // };
 export const getPoolDetailsFromSwap = (
-  positions: Swap[]
+  positions: SwapCSVRow[]
 ): Map<string, PoolDetails> => {
   let result = new Map<string, PoolDetails>();
   for (let i = 0; i < positions.length; i++) {
     let position = positions[i];
-    let poolId = position.pool.id;
+    let poolId = position.id;
     let poolDetails = result.get(poolId);
     if (poolDetails === undefined) {
       poolDetails = {
-        token0: position.token0,
-        token1: position.token1,
-        feeTier: position.pool.feeTier,
+        token0Address: position.token0Address,
+        token1Address: position.token1Address,
+        token0Symbol: position.token0Symbol,
+        token1Symbol: position.token1Symbol,
+        feeTier: position.feeTier,
       };
       result.set(poolId, poolDetails);
     }
@@ -340,12 +527,12 @@ export const getPoolDetailsFromSwap = (
 // };
 
 export const getUsersVolumeByUser = (
-  swaps: Swap[]
+  swaps: SwapCSVRow[]
 ): Map<string, Map<string, UserAggregatedAssetsInPools>> => {
   let result = new Map<string, Map<string, UserAggregatedAssetsInPools>>();
   for (let i = 0; i < swaps.length; i++) {
     let swap = swaps[i];
-    let poolId = swap.pool.id;
+    let poolId = swap.poolId;
     let owner = swap.sender;
     let userPositions = result.get(owner);
     if (userPositions === undefined) {
@@ -367,12 +554,12 @@ export const getUsersVolumeByUser = (
 };
 
 export const getUsersVolumeByPoolId = (
-  swaps: Swap[]
+  swaps: SwapCSVRow[]
 ): Map<string, Map<string, UserAggregatedAssetsInPools>> => {
   let result = new Map<string, Map<string, UserAggregatedAssetsInPools>>();
   for (let i = 0; i < swaps.length; i++) {
     let swap = swaps[i];
-    let poolId = swap.pool.id;
+    let poolId = swap.poolId;
     let owner = swap.sender;
     let poolInfo = result.get(poolId);
     if (poolInfo === undefined) {
@@ -415,3 +602,5 @@ export const getNumberOfPositionsByUserAndPoolFromPositions = (
   }
   return result;
 };
+
+
