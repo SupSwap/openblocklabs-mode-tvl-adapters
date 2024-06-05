@@ -8,9 +8,9 @@ import { getLPValueByUserAndPoolFromPositions, getPositionAtBlock,
   return this.toString();
 };
 
-import csv from 'csv-parser';
-import fs from 'fs';
-import { write } from 'fast-csv';
+import csv from "csv-parser";
+import fs from "fs";
+import { write } from "fast-csv";
 import path from "path";
 import { readUserPositionTVLFromCSV } from "./commons/csv-utils";
 import { logWithTimestamp } from "./commons/log-utils";
@@ -48,17 +48,32 @@ interface OutputData {
   [key: string]: UserLPData;
 }
 
+interface CSVRow {
+  user: string;
+  pool: string;
+  block: number;
+  position: number;
+  lpvalue: string;
+  pairName: string;
+  userPoolPositions: number;
+  token0Amount: string;
+  token1Amount: string;
+}
 
-const prepareBlockNumbersArr = (startBlockNumber: number, interval: number, endBlockNumber: number) => {
+const prepareBlockNumbersArr = (
+  startBlockNumber: number,
+  interval: number,
+  endBlockNumber: number
+) => {
   const blockNumbers = [];
   let currentBlockNumber = startBlockNumber;
-  do{
-      blockNumbers.push(currentBlockNumber);
-      currentBlockNumber += interval;
-  }while(currentBlockNumber <= endBlockNumber);
-  
+  do {
+    blockNumbers.push(currentBlockNumber);
+    currentBlockNumber += interval;
+  } while (currentBlockNumber <= endBlockNumber);
+
   return blockNumbers;
-}
+};
 
 const readBlocksFromCSV = async (filePath: string): Promise<number[]> => {
   return new Promise((resolve, reject) => {
@@ -66,19 +81,20 @@ const readBlocksFromCSV = async (filePath: string): Promise<number[]> => {
 
     fs.createReadStream(filePath)
       .pipe(csv())
-      .on('data', (row) => {
+      .on("data", (row) => {
         for (let key in row) {
           const blockNumber = parseInt(row[key]);
-          if (!isNaN(blockNumber)) { // Ensure it's a valid number before pushing
+          if (!isNaN(blockNumber)) {
+            // Ensure it's a valid number before pushing
             blocks.push(blockNumber);
           }
         }
       })
-      .on('end', () => {
-        logWithTimestamp('CSV file successfully processed.');
+      .on("end", () => {
+        logWithTimestamp("CSV file successfully processed.");
         resolve(blocks); // Resolve the promise with the blocks array
       })
-      .on('error', (error) => {
+      .on("error", (error) => {
         reject(error); // Reject the promise if an error occurs
       });
   });
@@ -86,83 +102,86 @@ const readBlocksFromCSV = async (filePath: string): Promise<number[]> => {
 
 // 7383401
 const getData = async () => {
+  // const csvFilePath = path.resolve(
+  //   __dirname,
+  //   "../../../../data/mode_supswapv3_hourly_blocks.csv"
+  // );
+  // const snapshotBlocks = await readBlocksFromCSV(csvFilePath);
+  const snapshotBlocks = prepareBlockNumbersArr(3245809, 43200, 3332209);
+  logWithTimestamp("Total blocks: " + snapshotBlocks.length);
 
-  // const csvFilePath = path.resolve(__dirname, '../../../../data/mode_supswapv3_hourly_blocks.csv');
-  // onst snapshotBlocks = await readBlocksFromCSV(csvFilePath);
-  const snapshotBlocks = prepareBlockNumbersArr(7385808,43200,8237844)
-    logWithTimestamp("Total blocks: "+snapshotBlocks.length)
-    
-    // Write the CSV output to a file
-  // const outputPath = path.resolve(__dirname, '../../../../data/mode_supswapv3_tvl_snapshot.csv');
-  
-  const outputPath = path.resolve(__dirname, '../mode_supswapv3_tvl_snapshot.csv');
+  // Write the CSV output to a file
+  //const outputPath = path.resolve(__dirname, '../../../../data/mode_supswapv3_tvl_snapshot.csv');
+
+  const outputPath = path.resolve(
+    __dirname,
+    "../mode_supswapv3_tvl_snapshot.csv"
+  );
   // logWithTimestamp(outputPath)
   const userPoolTVLs: UserPoolTVL[] = [];
   let processingIndex = 0;
   for (let block of snapshotBlocks) {
-    logWithTimestamp(`Processing Index: ${++processingIndex}/${snapshotBlocks.length}`)
     const positions = await getPositionsForAddressByPoolAtBlock(
-      block, "", "", CHAINS.MODE, PROTOCOLS.SUPSWAP, AMM_TYPES.UNISWAPV3
+      block,
+      "",
+      "",
+      CHAINS.MODE,
+      PROTOCOLS.SUPSWAP,
+      AMM_TYPES.UNISWAPV3
     );
 
     logWithTimestamp(`Block: ${block}`);
     logWithTimestamp(`Positions:  ${positions.length}`);
 
-
-    let poolInfo = getPoolDetailsFromPositions(positions)
+    let poolInfo = getPoolDetailsFromPositions(positions);
 
     // Assuming this part of the logic remains the same
     let positionsWithUSDValue = positions.map(getPositionDetailsFromPosition);
-    let lpValueByUsers = getLPValueByUserAndPoolFromPositions(positionsWithUSDValue);
-    let numberOfPositionsByUsersAndPool = getNumberOfPositionsByUserAndPoolFromPositions(positionsWithUSDValue)
+    let lpValueByUsers = getLPValueByUserAndPoolFromPositions(
+      positionsWithUSDValue
+    );
+    let numberOfPositionsByUsersAndPool =
+      getNumberOfPositionsByUserAndPoolFromPositions(positionsWithUSDValue);
     let uniqueUsersCount = 0;
 
     lpValueByUsers.forEach((value, key) => {
       uniqueUsersCount++;
       let positionIndex = 0; // Define how you track position index
-      value.forEach((lpValue, poolKey) => {
-        const lpValueStr = lpValue.toString();
-        const poolDetails = poolInfo.get(poolKey)!!
+      value.forEach((userAggregatedAssetsInPools, poolKey) => {
+        const poolDetails = poolInfo.get(poolKey)!!;
         // Accumulate CSV row data
         userPoolTVLs.push({
           user: key,
-          pairName: `${poolDetails.token0.symbol}/${poolDetails.token1.symbol} ${poolDetails.feeTier/10000}%`,
+          pairName: `${poolDetails.token0.symbol}/${
+            poolDetails.token1.symbol
+          } ${poolDetails.feeTier / 10000}%`,
           pool: poolKey,
           block,
           position: positions.length, // Adjust if you have a specific way to identify positions
-          lpvalue: lpValueStr,
-          userPoolPositions: Number(numberOfPositionsByUsersAndPool.get(key)?.get(poolKey) ?? 0)
+          lpvalue: userAggregatedAssetsInPools.lpValue.toString(),
+          userPoolPositions: Number(
+            numberOfPositionsByUsersAndPool.get(key)?.get(poolKey) ?? 0
+          ),
+          token0Amount:
+            userAggregatedAssetsInPools.token0AmountInDecimal.toString(),
+          token1Amount:
+            userAggregatedAssetsInPools.token1AmountInDecimal.toString(),
         });
       });
     });
 
-    logWithTimestamp("Number of Users:"+ uniqueUsersCount)
-   
+    logWithTimestamp("Number of Users:" + uniqueUsersCount);
   }
-  const ws = fs.createWriteStream(outputPath);
-  write(userPoolTVLs, { headers: true }).pipe(ws).on('finish', () => {
-    logWithTimestamp("CSV file has been written.");
-  });
+  const ws = fs.createWriteStream(outputPath, { flags: "a" });
+  write(userPoolTVLs, { headers: true })
+    .pipe(ws)
+    .on("finish", () => {
+      logWithTimestamp("CSV file has been written.");
+    });
 };
-logWithTimestamp("Starting...")
-// getData().then(() => {
-//   logWithTimestamp("Done");
-// });
-
-// readUserPositionTVLFromCSV(path.resolve(__dirname, '../mode_supswapv3_tvl_snapshot.csv'), true).then((data) => {
-//   logWithTimestamp(`Data length: ${data.length}`);
-//   createTable().then(() => {
-//     storeDataWithCopyStream(data).then(() => {
-//       logWithTimestamp("Done");
-//     });
-//   });
-// });
-
-getPoolsInformationFromSubgraph(0, CHAINS.MODE, PROTOCOLS.SUPSWAP, AMM_TYPES.UNISWAPV3).then((data) => {
-  logWithTimestamp(`Data length: ${data.length}`);
-  updatePoolInformationInDb(data).then(() => {
-    logWithTimestamp("Done");
-  });
+logWithTimestamp("Starting...");
+getData().then(() => {
+  logWithTimestamp("Done");
 });
 
 // tokensFromGitUrl("https://raw.githubusercontent.com/SupSwap/tokens/main/list/tokens.json").then((tokens) => {
@@ -172,6 +191,3 @@ getPoolsInformationFromSubgraph(0, CHAINS.MODE, PROTOCOLS.SUPSWAP, AMM_TYPES.UNI
 
 // getPrice(new BigNumber('1579427897588720602142863095414958'), 6, 18); //Uniswap
 // getPrice(new BigNumber('3968729022398277600000000'), 18, 6); //SupSwap
-
-
-

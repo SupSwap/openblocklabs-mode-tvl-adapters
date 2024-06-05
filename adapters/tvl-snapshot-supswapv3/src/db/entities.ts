@@ -8,4 +8,7 @@ interface UserPoolTVL {
     lpvalue: string;
     pairName: string;
     userPoolPositions: number;
+    token0Amount: string;
+    token1Amount: string;
   }
+

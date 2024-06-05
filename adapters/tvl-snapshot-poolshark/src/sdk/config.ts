@@ -12,7 +12,7 @@ export const enum AMM_TYPES{
 export const SUBGRAPH_URLS = {
     [CHAINS.MODE]: {
         [PROTOCOLS.POOLSHARK]: {
-            [AMM_TYPES.POOLSHARK]: "https://api.goldsky.com/api/public/project_clr6e38ix6mms01vddnnu2ydr/subgraphs/poolshark-limit-mode/0.2.5/gn",
+            [AMM_TYPES.POOLSHARK]: "https://api.goldsky.com/api/public/project_clr6e38ix6mms01vddnnu2ydr/subgraphs/poolshark-limit-mode-season0-block2/0.3.0/gn",
         }
     }
 }
