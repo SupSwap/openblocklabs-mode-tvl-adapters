@@ -15,92 +15,18 @@ import {
   return this.toString();
 };
 
-//Uncomment the following lines to test the getPositionAtBlock function
-
-// const position = getPositionAtBlock(
-//         0, // block number 0 for latest block
-//         2, // position id
-//         CHAINS.MODE, // chain id
-//         PROTOCOLS.SUPSWAP, // protocol
-//         AMM_TYPES.UNISWAPV3 // amm type
-//     );
-// position.then((position) => {
-//     // print response
-//     const result = getPositionDetailsFromPosition(position);
-//     logWithTimestamp(`${JSON.stringify(result,null, 4)}
-//     `)
-// });
-
-interface LPValueDetails {
-  pool: string;
-  lpValue: string;
-}
-
-interface UserLPData {
-  totalLP: string;
-  pools: LPValueDetails[];
-}
-
-// Define an object type that can be indexed with string keys, where each key points to a UserLPData object
-interface OutputData {
-  [key: string]: UserLPData;
-}
-
 interface CSVRow {
   user: string;
   pool: string;
-  // block: number;
-  // position: number;
+  feeUSD: string;
   volume: string;
   pairName: string;
+  token0Address: string;
+  token1Address: string;
   startTimestamp?: number;
   endTimestamp?: number;
-  // userPoolPositions: number;
-  // token0Amount: string;
-  // token1Amount: string;
 }
 
-const prepareBlockNumbersArr = (
-  startBlockNumber: number,
-  interval: number,
-  endBlockNumber: number
-) => {
-  const blockNumbers = [];
-  let currentBlockNumber = startBlockNumber;
-  do {
-    blockNumbers.push(currentBlockNumber);
-    currentBlockNumber += interval;
-  } while (currentBlockNumber <= endBlockNumber);
-
-  return blockNumbers;
-};
-
-const readBlocksFromCSV = async (filePath: string): Promise<number[]> => {
-  return new Promise((resolve, reject) => {
-    const blocks: number[] = [];
-
-    fs.createReadStream(filePath)
-      .pipe(csv())
-      .on("data", (row) => {
-        for (let key in row) {
-          const blockNumber = parseInt(row[key]);
-          if (!isNaN(blockNumber)) {
-            // Ensure it's a valid number before pushing
-            blocks.push(blockNumber);
-          }
-        }
-      })
-      .on("end", () => {
-        logWithTimestamp("CSV file successfully processed.");
-        resolve(blocks); // Resolve the promise with the blocks array
-      })
-      .on("error", (error) => {
-        reject(error); // Reject the promise if an error occurs
-      });
-  });
-};
-
-// 7383401
 const getData = async () => {
   // const csvFilePath = path.resolve(
   //   __dirname,
@@ -118,20 +44,12 @@ const getData = async () => {
     __dirname,
     "../mode_supswapv3_volume_snapshot.csv"
   );
-  const outputPath2 = path.resolve(
-    __dirname,
-    "../mode_supswapv3_volume_snapshot2.csv"
-  );
   // logWithTimestamp(outputPath)
   const csvRows: CSVRow[] = [];
   const csvRows2: CSVRow[] = [];
 
   // read input.csv as standard text file which reads line by line and store data in input variable
-
-  let inputFilePathForIndices = path.resolve(
-    __dirname,
-    "../input.csv"
-  );
+  let inputFilePathForIndices = path.resolve(__dirname, "../input.csv");
 
   // read input.csv as standard text file which reads line by line and store data in input variable
   let input = fs.readFileSync(inputFilePathForIndices, "utf8");
@@ -140,12 +58,12 @@ const getData = async () => {
   let initialRequestIndices = inputArray[0].split(",").map((index) => {
     return { index: parseInt(index), pending: true };
   });
-  let batchSize = initialRequestIndices.length
-  let dataSize = parseInt(inputArray[1])
+  let batchSize = initialRequestIndices.length;
+  let dataSize = parseInt(inputArray[1]);
 
-  console.log(initialRequestIndices)
-
-  let prePopulatedData = await prePopulateDataFromCSV("../pre_mode_supswapv3_volume_snapshot.csv")
+  let prePopulatedData = await prePopulateDataFromCSV(
+    "../pre_mode_supswapv3_volume_snapshot.csv"
+  );
 
   const swapList = await getSwapsForAddressByPoolAtBlock(
     fromBlock,
@@ -175,8 +93,6 @@ const getData = async () => {
     prePopulatedData
   );
 
-
-
   logWithTimestamp(`Block from: ${fromBlock}`);
   logWithTimestamp(`Timestamp start: ${startTimestamp}  end:${endTimestamp}`);
   logWithTimestamp(`Total swaps:  ${swapList.length}`);
@@ -184,17 +100,13 @@ const getData = async () => {
   let poolInfo = getPoolDetailsFromSwap(swapList);
 
   // Assuming this part of the logic remains the same
-  // let positionsWithUSDValue = swapList.map(getPositionDetailsFromPosition);
   let swapVolumeByUsers = getUsersVolumeByUser(swapList);
-  let swapVolumeByPool = getUsersVolumeByPoolId(swapList);
+  // let swapVolumeByPool = getUsersVolumeByPoolId(swapList);
 
-  // let numberOfPositionsByUsersAndPool =
-  //   getNumberOfPositionsByUserAndPoolFromPositions(positionsWithUSDValue);
   let uniqueUsersCount = 0;
 
   swapVolumeByUsers.forEach((value, key) => {
     uniqueUsersCount++;
-    let positionIndex = 0; // Define how you track position index
     value.forEach((userAggregatedAssetsInPools, poolKey) => {
       const poolDetails = poolInfo.get(poolKey)!!;
       // Accumulate CSV row data
@@ -204,43 +116,12 @@ const getData = async () => {
           poolDetails.feeTier / 10000
         }%`,
         pool: poolKey,
-        // timestamp,
-        // position: swapList.length, // Adjust if you have a specific way to identify positions
+        feeUSD: userAggregatedAssetsInPools.amountFeeUSD.toFixed(4),
         volume: userAggregatedAssetsInPools.volume.toFixed(4),
-        // userPoolPositions: Number(
-        //   numberOfPositionsByUsersAndPool.get(key)?.get(poolKey) ?? 0
-        // ),
-        // token0Amount:
-        //   userAggregatedAssetsInPools.token0AmountInDecimal.toString(),
-        // token1Amount:
-        //   userAggregatedAssetsInPools.token1AmountInDecimal.toString(),
-      });
-    });
-  });
-
-  swapVolumeByPool.forEach((value, poolKey) => {
-    uniqueUsersCount++;
-    let positionIndex = 0; // Define how you track position index
-    const poolDetails = poolInfo.get(poolKey)!!;
-    value.forEach((userAggregatedAssetsInPools, userKey) => {
-      // Accumulate CSV row data
-      csvRows2.push({
-        user: userKey,
-        pairName: `${poolDetails.token0Symbol}/${poolDetails.token1Symbol} ${
-          poolDetails.feeTier / 10000
-        }%`,
-        pool: poolKey,
-        // position: swapList.length, // Adjust if you have a specific way to identify positions
-        volume: userAggregatedAssetsInPools.volume.toFixed(4),
+        token0Address: poolDetails.token0Address,
+        token1Address: poolDetails.token1Address,
         startTimestamp,
         endTimestamp,
-        // userPoolPositions: Number(
-        //   numberOfPositionsByUsersAndPool.get(key)?.get(poolKey) ?? 0
-        // ),
-        // token0Amount:
-        //   userAggregatedAssetsInPools.token0AmountInDecimal.toString(),
-        // token1Amount:
-        //   userAggregatedAssetsInPools.token1AmountInDecimal.toString(),
       });
     });
   });
@@ -253,12 +134,6 @@ const getData = async () => {
     .on("finish", () => {
       logWithTimestamp("CSV file has been written.");
     });
-  const ws2 = fs.createWriteStream(outputPath2, { flags: "a" });
-  write(csvRows2, { headers: true })
-    .pipe(ws2)
-    .on("finish", () => {
-      logWithTimestamp("CSV2 file has been written.");
-    });
 };
 logWithTimestamp("Starting...");
 getData().then(() => {
@@ -270,9 +145,9 @@ export function logWithTimestamp(message: string): void {
 }
 
 async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
-  // check if file exists or else create it 
+  // check if file exists or else create it
   if (!fs.existsSync(path.resolve(__dirname, arg0))) {
-    fs.writeFileSync(path.resolve(__dirname, arg0), "")
+    fs.writeFileSync(path.resolve(__dirname, arg0), "");
     return [];
   }
 
@@ -287,15 +162,16 @@ async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
       amount0: Number(swap[2]),
       amount1: Number(swap[3]),
       amountUSD: Number(swap[4]),
-      sender: swap[5],
-      poolId: swap[6],
-      token0Symbol: swap[7],
-      token1Symbol: swap[8],
-      token0Address: swap[9],
-      token1Address: swap[10],
-      sqrtPrice: Number(swap[11]),
-      tick: parseInt(swap[12]),
-      feeTier: parseInt(swap[13]),
+      amountFeeUSD: Number(swap[5]),
+      sender: swap[6],
+      poolId: swap[7],
+      token0Symbol: swap[8],
+      token1Symbol: swap[9],
+      token0Address: swap[10],
+      token1Address: swap[11],
+      sqrtPrice: Number(swap[12]),
+      tick: parseInt(swap[13]),
+      feeTier: parseInt(swap[14]),
     });
   });
   return swaps;
