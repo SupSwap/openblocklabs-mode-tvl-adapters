@@ -14,6 +14,7 @@ export interface UserAggregatedAssetsInPools {
   amountFeeUSD: BigNumber;
 }
 export interface PoolDetails {
+  poolId: string;
   token0Address: string;
   token1Address: string;
   token0Symbol: string;
@@ -503,6 +504,7 @@ export const getPoolDetailsFromSwap = (
     let poolDetails = result.get(poolId);
     if (poolDetails === undefined) {
       poolDetails = {
+        poolId: poolId,
         token0Address: swap.token0Address,
         token1Address: swap.token1Address,
         token0Symbol: swap.token0Symbol,

@@ -11,6 +11,7 @@ import {
   Swap,
   SwapCSVRow,
 } from "./sdk/subgraphDetails";
+import { createTable, storeData, storeDataWithCopyStream } from "./db/dbutils";
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
 };
@@ -128,12 +129,17 @@ const getData = async () => {
 
   logWithTimestamp("Number of Users:" + uniqueUsersCount);
 
-  const ws = fs.createWriteStream(outputPath, { flags: "a" });
+  // Store data in CSV
+  const ws = fs.createWriteStream(outputPath);
   write(csvRows, { headers: true })
     .pipe(ws)
     .on("finish", () => {
       logWithTimestamp("CSV file has been written.");
     });
+
+  // Database handling
+  await createTable();
+  await storeData(csvRows);
 };
 logWithTimestamp("Starting...");
 getData().then(() => {
