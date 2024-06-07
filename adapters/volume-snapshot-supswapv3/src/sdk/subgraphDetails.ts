@@ -236,7 +236,7 @@ export const getSwapsForAddressByPoolAtBlock = async (
   prePopulatedData: SwapCSVRow[]
 ): Promise<SwapCSVRow[]> => {
   let skip = 0;
-  let fetchNext = false;
+  let fetchNext = true;
   let result: SwapCSVRow[] = [];
   let responseSuccess: boolean[] = [];
   // initialize requestIndices number array from 0 to 49
