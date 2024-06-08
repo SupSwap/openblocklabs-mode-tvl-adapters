@@ -11,6 +11,8 @@ import {
   Swap,
   SwapCSVRow,
 } from "./sdk/subgraphDetails";
+import { logWithTimestamp } from "./commons/log-utils";
+import { readCSVWithPromise } from "./sdk/utils/csvReadWriteWithPromise";
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
 };
@@ -139,10 +141,6 @@ logWithTimestamp("Starting...");
 getData().then(() => {
   logWithTimestamp("Done");
 });
-export function logWithTimestamp(message: string): void {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}](${Date.now()})  ${message}`);
-}
 
 async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
   // check if file exists or else create it
@@ -151,8 +149,9 @@ async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
     return [];
   }
 
-  let csv = fs.readFileSync(path.resolve(__dirname, arg0), "utf8");
-  let csvArray = csv.split("\n");
+  // let csv = fs.readFileSync(path.resolve(__dirname, arg0), "utf8");
+
+  let csvArray = await readCSVWithPromise(path.resolve(__dirname, arg0));
   let swaps: SwapCSVRow[] = [];
   csvArray.forEach((row) => {
     let swap = row.split(",");

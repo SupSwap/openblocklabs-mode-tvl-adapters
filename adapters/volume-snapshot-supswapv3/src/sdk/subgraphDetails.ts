@@ -4,11 +4,9 @@ import { PositionMath } from "./utils/positionMath";
 import fs from "fs";
 import { write } from "fast-csv";
 import path from "path";
+import { writeCSVWithPromise } from "./utils/csvReadWriteWithPromise";
+import { logWithTimestamp } from "../commons/log-utils";
 
-export function logWithTimestamp(message: string): void {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}](${Date.now()})  ${message}`);
-}
 export interface UserAggregatedAssetsInPools {
   volume: BigNumber;
   amountFeeUSD: BigNumber;
@@ -370,23 +368,6 @@ export const getSwapsForAddressByPoolAtBlock = async (
   }
   return result;
 };
-
-export function writeCSVWithPromise(
-  csvRows: SwapCSVRow[],
-  ws: fs.WriteStream
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    write(csvRows)
-      .pipe(ws)
-      .on("finish", () => {
-        logWithTimestamp("CSV file has been written.");
-        resolve();
-      })
-      .on("error", (error) => {
-        reject(error);
-      });
-  });
-}
 
 // export const getPositionAtBlock = async (
 //   blockNumber: number,
