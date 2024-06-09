@@ -63,6 +63,8 @@ const poolAddresses = [
   "0xf778311523df84930b1cac2fefd4c6be83e4b337", // mbtc-wrsETH
   "0xf927bf4a4170f29c429ad3b9d953e57df3691ec9", // weth-mochad
   "0xf958a5fb8d8429979eb9f374c2027ba1c232fecc", // ezETH-usdt
+  "0xc80b7d4fc49de3e046d45904890c3cad574c43ef",
+  "0xd724540f997337100b0da0ce5a8df39f15fbb7b3",
 ];
 
 async function getUserWalletLps(block: number) {
