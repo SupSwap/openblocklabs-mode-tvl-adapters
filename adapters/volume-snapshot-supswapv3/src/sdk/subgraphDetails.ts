@@ -27,6 +27,9 @@ export interface TokenDetails {
   derivedUSD?: number;
 }
 
+export interface SwapCSVRowWithPoints extends SwapCSVRow {
+  points: number;
+}
 export interface SwapCSVRow {
   timestamp: number;
   id: string;

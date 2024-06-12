@@ -1,6 +1,7 @@
 import csv from "csv-parser";
 import { write } from "fast-csv";
 import fs from "fs";
+import readline from "readline";
 import path from "path";
 import { AMM_TYPES, CHAINS, PROTOCOLS } from "./sdk/config";
 import {
@@ -10,6 +11,7 @@ import {
   getUsersVolumeByPoolId,
   Swap,
   SwapCSVRow,
+  SwapCSVRowWithPoints,
 } from "./sdk/subgraphDetails";
 import { logWithTimestamp } from "./commons/log-utils";
 import { readCSVWithPromise } from "./sdk/utils/csvReadWriteWithPromise";
@@ -28,6 +30,32 @@ interface CSVRow {
   startTimestamp?: number;
   endTimestamp?: number;
 }
+
+interface UserAccumulatedData {
+  user: string;
+  totalPoints: number;
+  totalAmountUSD: number;
+  actualFeePaid: number;
+}
+
+const FEE_POINTS_DIVISOR = 1_000_000;
+
+const VALID_POOLS = [
+  "0x1c5dac653e349bda91d453d5751f167489e02ac9",
+  "0x7a55c67aaf235cc6620f207a7da74438aac0b58e",
+  "0x5fd1fdf90276957154cd2985936acf4fcbf74b4c",
+  "0xf2e9c024f1c0b7a2a4ea11243c2d86a7b38dd72f",
+  "0x962e5982c1507af4ea5af2d6a25774f6e93b50d4",
+  "0xd87f0dd632cce09e3f78919c4399f4676bdaab9d",
+  "0xb711ab77d504aadaade1a66b59097da6dae4d828",
+  "0x17298f6e971921e7c2a03bd2f3140c883fee47d2",
+  "0x5af5c0d446468a55efcf26d8e1d291b175751645",
+  "0xf9cd7bf85dbbf20d786068dd17210b471cf10f69",
+]
+
+const BLACKLISTED_WALLETS = [
+  "0x0000000000000000000000000000000000000000",
+]
 
 const getData = async () => {
   // const csvFilePath = path.resolve(
@@ -63,9 +91,12 @@ const getData = async () => {
   let batchSize = initialRequestIndices.length;
   let dataSize = parseInt(inputArray[1]);
 
-  let prePopulatedData = await prePopulateDataFromCSV(
+  // read prePopulatedData from csv
+ let fileLines = await readLargeFile(
     "../pre_mode_supswapv3_volume_snapshot.csv"
   );
+
+  let prePopulatedData = parseCSVRowDataFromPrePopulatedData(fileLines);
 
   const swapList = await getSwapsForAddressByPoolAtBlock(
     fromBlock,
@@ -138,18 +169,28 @@ const getData = async () => {
     });
 };
 
-async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
-  // check if file exists or else create it
-  if (!fs.existsSync(path.resolve(__dirname, arg0))) {
-    fs.writeFileSync(path.resolve(__dirname, arg0), "");
-    return [];
+
+// Function to read file line by line
+async function readLargeFile(filePath: string): Promise<string[]> {
+  const fileStream = fs.createReadStream(path.resolve(__dirname, filePath));
+  const lines: string[] = [];
+  const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity
+  });
+
+  for await (const line of rl) {
+      // Process each line here
+      lines.push(line);
   }
+  return lines;
+}
 
-  // let csv = fs.readFileSync(path.resolve(__dirname, arg0), "utf8");
 
-  let csvArray = await readCSVWithPromise(path.resolve(__dirname, arg0));
-  let swaps: SwapCSVRow[] = [];
-  csvArray.forEach((row) => {
+function parseCSVRowDataFromPrePopulatedData(arg0: string[]): SwapCSVRowWithPoints[] {
+  
+  let swaps: SwapCSVRowWithPoints[] = [];
+  arg0.forEach((row) => {
     let swap = row.split(",");
     swaps.push({
       timestamp: parseInt(swap[0]),
@@ -167,15 +208,129 @@ async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
       sqrtPrice: Number(swap[12]),
       tick: parseInt(swap[13]),
       feeTier: parseInt(swap[14]),
+      points: Number(swap[4])* parseInt(swap[14]) / FEE_POINTS_DIVISOR,
     });
   });
   return swaps;
 }
+
+
+function sortSwapsByPointsInDescendingOrder(swaps: SwapCSVRowWithPoints[]): SwapCSVRowWithPoints[] {
+  return swaps.sort((a, b) => b.points - a.points);
+}
+
+
+function filterSwapsByPoolIds(swaps: SwapCSVRowWithPoints[], poolIds: string[]): {validSwaps: SwapCSVRowWithPoints[], invalidSwaps: SwapCSVRowWithPoints[]} {
+  let validSwaps: SwapCSVRowWithPoints[] = [];
+  let invalidSwaps: SwapCSVRowWithPoints[] = [];
+  swaps.forEach((swap) => {
+    if (poolIds.includes(swap.poolId)) {
+      validSwaps.push(swap);
+    } else {
+      invalidSwaps.push(swap);
+    }
+  });
+  return { validSwaps, invalidSwaps };
+}
+
+function filterSwapsByWallets(swaps: SwapCSVRowWithPoints[], blacklistedWallets: string[]): {validSwaps: SwapCSVRowWithPoints[], invalidSwaps: SwapCSVRowWithPoints[]} {
+  let validSwaps: SwapCSVRowWithPoints[] = [];
+  let invalidSwaps: SwapCSVRowWithPoints[] = [];
+  swaps.forEach((swap) => {
+    if (blacklistedWallets.includes(swap.sender)) {
+      invalidSwaps.push(swap);
+    } else {
+      validSwaps.push(swap);
+    }
+  });
+  return { validSwaps, invalidSwaps };
+}
+
+function calculateUsersTotalPointsAlongWithAmountUSD(swaps: SwapCSVRowWithPoints[]): Map<string, UserAccumulatedData> {
+  let usersTotalPoints = new Map<string, UserAccumulatedData>();
+  swaps.forEach((swap) => {
+    let user = usersTotalPoints.get(swap.sender);
+    if (user) {
+      user.totalPoints += swap.points;
+      user.totalAmountUSD += swap.amountUSD;
+      user.actualFeePaid += swap.amountFeeUSD;
+    } else {
+      usersTotalPoints.set(swap.sender, {user: swap.sender, totalPoints: swap.points, totalAmountUSD: swap.amountUSD, actualFeePaid: swap.amountFeeUSD});
+    }
+  });
+  return usersTotalPoints;
+}
+
+function sortUsersTotalPointsByPointsInDescendingOrder(usersTotalPoints: Map<string, UserAccumulatedData>): Map<string, UserAccumulatedData> {
+  return new Map([...usersTotalPoints.entries()].sort((a, b) => b[1].totalPoints - a[1].totalPoints));
+}
+
+
 // getPrice(new BigNumber('1579427897588720602142863095414958'), 6, 18); //Uniswap
 // getPrice(new BigNumber('3968729022398277600000000'), 18, 6); //SupSwap
 
 
 logWithTimestamp("Starting...");
-getData().then(() => {
+// getData().then(() => {
+//   logWithTimestamp("Done");
+// });
+
+const calculatePointsFromPrePopulatedData = async () => {
+
+
+  // Read the file line by line
+  let fileLines = await readLargeFile(
+    "../pre_mode_supswapv3_volume_snapshot.csv"
+  );
+
+  // Parse the data from the file in SWAPCSV Row
+  let swaps = parseCSVRowDataFromPrePopulatedData(fileLines);
+  console.log(swaps.length);
+
+  // Sort the swaps by points in descending order
+  // let sortedSwaps = sortSwapsByPointsInDescendingOrder(swaps);
+
+
+  let {validSwaps: validSwapsByPoolId, invalidSwaps: invalidSwapsByPoolId} = filterSwapsByPoolIds(swaps, VALID_POOLS);
+
+  console.log(validSwapsByPoolId.length);
+  console.log(invalidSwapsByPoolId.length);
+
+
+  let {validSwaps: validSwapsByWallet, invalidSwaps: invalidSwapsByWallet} = filterSwapsByWallets(validSwapsByPoolId, BLACKLISTED_WALLETS);
+
+  console.log(validSwapsByWallet.length);
+  console.log(invalidSwapsByWallet.length);
+
+
+  let usersTotalPoints = calculateUsersTotalPointsAlongWithAmountUSD(validSwapsByWallet);
+
+  console.log(usersTotalPoints.size);
+
+  let sortedUsersTotalPoints = sortUsersTotalPointsByPointsInDescendingOrder(usersTotalPoints);
+
+  console.log(sortedUsersTotalPoints.size);
+  console.log("User\tTotal Points\tTotal Amount USD\tActual Fee Paid");
+  sortedUsersTotalPoints.forEach((value, key) => {
+    console.log(`${key}\t${value.totalPoints}\t${value.totalAmountUSD}\t${value.actualFeePaid}`);
+  });
+
+  console.log(`Total Valid Users: ${sortedUsersTotalPoints.size}`);
+
+
+  // write the sorted users total points to a csv file
+  let outputPath = path.resolve(__dirname, "../mode_supswapv3_users_total_points.csv");
+  let ws = fs.createWriteStream(outputPath);
+  write(Array.from(sortedUsersTotalPoints.values()), { headers: true })
+    .pipe(ws)
+    .on("finish", () => {
+      logWithTimestamp("CSV file has been written.");
+    });
+
+
+
+};
+
+calculatePointsFromPrePopulatedData().then(() => {
   logWithTimestamp("Done");
 });
