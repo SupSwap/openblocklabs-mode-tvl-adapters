@@ -137,10 +137,6 @@ const getData = async () => {
       logWithTimestamp("CSV file has been written.");
     });
 };
-logWithTimestamp("Starting...");
-getData().then(() => {
-  logWithTimestamp("Done");
-});
 
 async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
   // check if file exists or else create it
@@ -177,3 +173,9 @@ async function prePopulateDataFromCSV(arg0: string): Promise<SwapCSVRow[]> {
 }
 // getPrice(new BigNumber('1579427897588720602142863095414958'), 6, 18); //Uniswap
 // getPrice(new BigNumber('3968729022398277600000000'), 18, 6); //SupSwap
+
+
+logWithTimestamp("Starting...");
+getData().then(() => {
+  logWithTimestamp("Done");
+});
